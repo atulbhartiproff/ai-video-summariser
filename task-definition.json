@@ -1,0 +1,75 @@
+{
+    "family": "ai-video-summarizer",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "1024",
+    "memory": "2048",
+    "containerDefinitions": [
+      {
+        "name": "backend",
+        "image": "899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-backend:latest",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 5000,
+            "protocol": "tcp"
+          }
+        ],
+        "environment": [
+          {
+            "name": "PORT",
+            "value": "5000"
+          },
+          {
+            "name": "MAX_FILE_SIZE_MB",
+            "value": "500"
+          }
+        ],
+        "secrets": [
+          {
+            "name": "GEMINI_API_KEY",
+            "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:<account-id>:secret:gemini-api-key"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/ai-video-summarizer",
+            "awslogs-region": "ap-southeast-2",
+            "awslogs-stream-prefix": "backend"
+          }
+        }
+      },
+      {
+        "name": "frontend",
+        "image": "899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-frontend:latest",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 80,
+            "protocol": "tcp"
+          }
+        ],
+        "environment": [
+          {
+            "name": "BACKEND_URL",
+            "value": "http://localhost:5000"
+          }
+        ],
+        "dependsOn": [
+          {
+            "containerName": "backend",
+            "condition": "START"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/ai-video-summarizer",
+            "awslogs-region": "ap-southeast-2",
+            "awslogs-stream-prefix": "frontend"
+          }
+        }
+      }
+    ]
+  }

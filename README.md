@@ -110,34 +110,45 @@ docker compose build backend
 
 ## ☁️ Deploy on AWS ECS (Fargate)
 
+> **🎉 Good News**: The frontend now uses **runtime configuration** via nginx reverse proxy! You don't need to know the backend URL at build time. The frontend uses relative URLs, and nginx proxies API calls to the backend using the `BACKEND_URL` environment variable set at container startup.
+
 ### Step 1: Build and Push Docker Images to ECR
 
 1. **Create ECR repositories** (if not exists):
    ```bash
-   aws ecr create-repository --repository-name ai-video-frontend --region us-east-1
-   aws ecr create-repository --repository-name ai-video-backend --region us-east-1
+   aws ecr create-repository --repository-name ai-video-frontend --region ap-southeast-2
+   aws ecr create-repository --repository-name ai-video-backend --region ap-southeast-2
    ```
 
 2. **Authenticate Docker to ECR**:
    ```bash
-   aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <your-account-id>.dkr.ecr.us-east-1.amazonaws.com
+   aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin 899673281251.dkr.ecr.ap-southeast-2.amazonaws.com
    ```
 
 3. **Build and tag images**:
+   
+   **No build-time configuration needed!** The frontend uses relative URLs and nginx reverse proxy.
+   
    ```bash
-   # Build frontend
-   docker build -t ai-video-frontend ./frontend --build-arg VITE_API_URL=http://your-backend-url:5000
-   docker tag ai-video-frontend:latest <your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-frontend:latest
+   # Build frontend (no VITE_API_URL needed - uses runtime config)
+   docker build -t ai-video-frontend ./frontend
+   docker tag ai-video-frontend:latest 899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-frontend:latest
    
    # Build backend
    docker build -t ai-video-backend ./backend
-   docker tag ai-video-backend:latest <your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-backend:latest
+   docker tag ai-video-backend:latest 899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-backend:latest
    ```
+   
+   **How it works**: 
+   - Frontend makes API calls to relative URLs (e.g., `/api/upload`)
+   - Nginx in the frontend container proxies these to the backend
+   - Backend URL is configured at runtime via `BACKEND_URL` environment variable
+   - This means you can build once and deploy anywhere!
 
 4. **Push images to ECR**:
    ```bash
-   docker push <your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-frontend:latest
-   docker push <your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-backend:latest
+   docker push 899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-frontend:latest
+   docker push 899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-backend:latest
    ```
 
 ### Step 2: Create ECS Task Definition
@@ -154,7 +165,7 @@ Create a task definition JSON file (`task-definition.json`):
   "containerDefinitions": [
     {
       "name": "backend",
-      "image": "<your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-backend:latest",
+      "image": "899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-backend:latest",
       "essential": true,
       "portMappings": [
         {
@@ -175,26 +186,32 @@ Create a task definition JSON file (`task-definition.json`):
       "secrets": [
         {
           "name": "GEMINI_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:<account-id>:secret:gemini-api-key"
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:<account-id>:secret:gemini-api-key"
         }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
           "awslogs-group": "/ecs/ai-video-summarizer",
-          "awslogs-region": "us-east-1",
+          "awslogs-region": "ap-southeast-2",
           "awslogs-stream-prefix": "backend"
         }
       }
     },
     {
       "name": "frontend",
-      "image": "<your-account-id>.dkr.ecr.us-east-1.amazonaws.com/ai-video-frontend:latest",
+      "image": "899673281251.dkr.ecr.ap-southeast-2.amazonaws.com/ai-video-frontend:latest",
       "essential": true,
       "portMappings": [
         {
           "containerPort": 80,
           "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "BACKEND_URL",
+          "value": "http://localhost:5000"
         }
       ],
       "dependsOn": [
@@ -207,7 +224,7 @@ Create a task definition JSON file (`task-definition.json`):
         "logDriver": "awslogs",
         "options": {
           "awslogs-group": "/ecs/ai-video-summarizer",
-          "awslogs-region": "us-east-1",
+          "awslogs-region": "ap-southeast-2",
           "awslogs-stream-prefix": "frontend"
         }
       }
@@ -227,14 +244,14 @@ aws ecs register-task-definition --cli-input-json file://task-definition.json
 aws secretsmanager create-secret \
   --name gemini-api-key \
   --secret-string "your-gemini-api-key-here" \
-  --region us-east-1
+  --region ap-southeast-2
 ```
 
 ### Step 4: Create ECS Service
 
 1. **Create CloudWatch Log Group**:
    ```bash
-   aws logs create-log-group --log-group-name /ecs/ai-video-summarizer --region us-east-1
+   aws logs create-log-group --log-group-name /ecs/ai-video-summarizer --region ap-southeast-2
    ```
 
 2. **Create ECS Service** (via AWS Console or CLI):
@@ -248,8 +265,13 @@ aws secretsmanager create-secret \
    - Load Balancer: Optional (Application Load Balancer recommended)
 
 3. **Access the Application**:
-   - If using ALB: Use the ALB DNS name
+   - If using ALB: Use the ALB DNS name (e.g., `http://ai-video-123456789.ap-southeast-2.elb.amazonaws.com`)
    - If using public IP: Use the task's public IP on port 80
+   
+   **Note on BACKEND_URL**: 
+   - Since both containers are in the same ECS task, use `http://localhost:5000` (as shown in task definition)
+   - The frontend nginx will proxy `/api/*` requests to the backend container
+   - No need to expose backend port 5000 publicly - nginx handles the routing internally
 
 ## 🔧 Environment Variables
 
@@ -259,7 +281,8 @@ aws secretsmanager create-secret \
 - `MAX_FILE_SIZE_MB` (default: 500): Maximum upload file size in MB
 
 ### Frontend
-- `VITE_API_URL` (default: http://localhost:5000): Backend API URL
+- `BACKEND_URL` (default: http://localhost:5000): Backend URL for nginx reverse proxy (runtime configuration)
+- `VITE_API_URL` (optional, for local dev): Only needed for local development without Docker
 
 ## 📝 API Endpoints
 
