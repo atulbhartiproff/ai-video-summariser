@@ -1,13 +1,22 @@
 import axios from 'axios'
 
 // Use relative URL for production (nginx will proxy to backend)
-// Fall back to VITE_API_URL for local development
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:5000')
+// Only use absolute URL for local development with Vite dev server
+// In production (Docker/ECS), always use relative URLs so nginx can proxy
+const isDevelopment = import.meta.env.DEV
+const API_BASE = isDevelopment 
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:5000')
+  : '' // Empty string = relative URLs (nginx will proxy)
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 300000, // 5 minutes for video processing
 })
+
+// Debug log (remove in production if needed)
+if (import.meta.env.DEV) {
+  console.log('API Base URL:', API_BASE || '(relative - will use nginx proxy)')
+}
 
 /**
  * Upload video file and get summary

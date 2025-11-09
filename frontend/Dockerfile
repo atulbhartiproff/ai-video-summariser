@@ -37,6 +37,12 @@ server {
     root /usr/share/nginx/html;
     index index.html;
     
+    # Increase max upload size (default is 1MB, set to 500MB for video files)
+    client_max_body_size 500M;
+    
+    # Increase buffer sizes for large uploads
+    client_body_buffer_size 128k;
+    
     # Gzip compression
     gzip on;
     gzip_vary on;
@@ -44,9 +50,10 @@ server {
     gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
     
     # Proxy API requests to backend
-    # ${BACKEND_URL} will be replaced at runtime via envsubst
+    # __BACKEND_URL__ will be replaced at runtime via sed
     location /api/ {
-        proxy_pass ${BACKEND_URL}/api/;
+        proxy_pass __BACKEND_URL__/api/;
+        proxy_redirect off;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -57,11 +64,16 @@ server {
         proxy_cache_bypass \$http_upgrade;
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
+        
+        # Increase timeouts for large file uploads
+        proxy_request_buffering off;
+        proxy_buffering off;
     }
     
     # Proxy health check endpoint
     location /health {
-        proxy_pass ${BACKEND_URL}/health;
+        proxy_pass __BACKEND_URL__/health;
+        proxy_redirect off;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -81,18 +93,39 @@ COPY <<'SCRIPT' /docker-entrypoint.sh
 set -e
 
 # Default backend URL (can be overridden via environment variable)
-BACKEND_URL=${BACKEND_URL:-http://localhost:5000}
+export BACKEND_URL=${BACKEND_URL:-http://localhost:5000}
+
+# Validate BACKEND_URL is set and not empty
+if [ -z "$BACKEND_URL" ]; then
+    echo "ERROR: BACKEND_URL environment variable is not set!"
+    exit 1
+fi
+
+# Remove trailing slash from BACKEND_URL if present
+BACKEND_URL=$(echo "$BACKEND_URL" | sed 's|/$||')
+export BACKEND_URL
+
+echo "Using BACKEND_URL: $BACKEND_URL"
 
 # Replace BACKEND_URL placeholder in nginx config template
-# envsubst will replace ${BACKEND_URL} with the environment variable value
-envsubst < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+# Use sed to replace __BACKEND_URL__ placeholder with actual value
+sed "s|__BACKEND_URL__|$BACKEND_URL|g" /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+
+# Validate generated nginx config
+if ! nginx -t; then
+    echo "ERROR: Generated nginx configuration is invalid!"
+    echo "Generated config:"
+    cat /etc/nginx/conf.d/default.conf
+    exit 1
+fi
+
+echo "Nginx configuration validated successfully"
 
 # Start nginx
 exec nginx -g 'daemon off;'
 SCRIPT
 
-RUN chmod +x /docker-entrypoint.sh && \
-    apk add --no-cache gettext
+RUN chmod +x /docker-entrypoint.sh
 
 # Expose port 80
 EXPOSE 80
