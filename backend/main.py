@@ -32,6 +32,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable is required")
 
+# Log API key status (first 5 and last 5 chars only for security)
+key_len = len(GEMINI_API_KEY) if GEMINI_API_KEY else 0
+first5 = GEMINI_API_KEY[:5] if key_len >= 5 else GEMINI_API_KEY or ""
+last5 = GEMINI_API_KEY[-5:] if key_len >= 5 else ""
+masked = f"{first5}...{last5}" if key_len >= 10 else (first5 or "INVALID")
+print(f"Gemini API Key loaded: {masked} (length: {key_len})")
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Maximum file size (500MB default)

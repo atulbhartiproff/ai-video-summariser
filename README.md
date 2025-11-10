@@ -196,7 +196,7 @@ Or find it in the AWS Console (top right corner, next to your username).
    - **Secrets:**
      - Click **Add secret**
      - **Key:** `GEMINI_API_KEY`
-     - **Value from:** Select your secret ARN (e.g., `arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:gemini-api-key`)
+     - **Value from:** Select your secret ARN (e.g., `arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:ai-video-gemini-key`)
    - **Logging:**
      - **Log driver:** `awslogs`
      - **Log group:** `/ecs/ai-video-summarizer`
@@ -244,7 +244,7 @@ echo "Account ID: $ACCOUNT_ID"
 ```bash
 # Get the full ARN
 SECRET_ARN=$(aws secretsmanager describe-secret \
-  --secret-id gemini-api-key \
+  --secret-id ai-video-gemini-key \
   --region ap-southeast-2 \
   --query 'ARN' \
   --output text)
@@ -254,7 +254,7 @@ echo "Secret ARN: $SECRET_ARN"
 **Option B - Construct ARN manually:**
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-SECRET_ARN="arn:aws:secretsmanager:ap-southeast-2:${ACCOUNT_ID}:secret:gemini-api-key"
+SECRET_ARN="arn:aws:secretsmanager:ap-southeast-2:${ACCOUNT_ID}:secret:ai-video-gemini-key"
 echo "Secret ARN: $SECRET_ARN"
 ```
 
@@ -296,7 +296,7 @@ Create a file named `task-definition.json`:
       "secrets": [
         {
           "name": "GEMINI_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:gemini-api-key-XXXXXX"
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:ai-video-gemini-key-XXXXXX"
         }
       ],
       "logConfiguration": {
@@ -447,10 +447,39 @@ aws ecs describe-task-definition \
    - Sum of all container memory limits must be ≤ task memory
    - Backend: 1024 MB + Frontend: 512 MB = 1536 MB ≤ 2048 MB ✓
 
-3. **"Secrets Manager ARN not found"**
-   - Verify the secret exists: `aws secretsmanager describe-secret --secret-id gemini-api-key --region ap-southeast-2`
-   - Check account ID in ARN matches your account
-   - Ensure secret is in the same region (ap-southeast-2)
+3. **"Secrets Manager ARN not found" or "API key not valid"**
+   - **Verify the secret exists:**
+     ```bash
+     aws secretsmanager describe-secret --secret-id ai-video-gemini-key --region ap-southeast-2
+     ```
+   - **Get the correct ARN (includes random suffix):**
+     ```bash
+     aws secretsmanager describe-secret \
+       --secret-id ai-video-gemini-key \
+       --region ap-southeast-2 \
+       --query 'ARN' \
+       --output text
+     ```
+   - **Verify the secret value is correct (plain string, not JSON):**
+     ```bash
+     # Check if it's stored correctly
+     aws secretsmanager get-secret-value \
+       --secret-id ai-video-gemini-key \
+       --region ap-southeast-2 \
+       --query 'SecretString' \
+       --output text
+     ```
+   - **Common mistakes:**
+     - Secret stored as JSON `{"key": "value"}` instead of plain string
+     - Wrong ARN in task definition (missing or incorrect suffix)
+     - API key copied incorrectly (extra spaces, missing characters)
+   - **Check ECS task can read the secret:**
+     - Verify task execution role has `secretsmanager:GetSecretValue` permission
+     - Check CloudWatch logs for backend container to see if API key is loaded
+   - **Update task definition with correct ARN:**
+     - Use the ARN from `describe-secret` command (includes `-XXXXXX` suffix)
+     - Register new task definition revision
+     - Force service deployment
 
 4. **"Image not found"**
    - Verify image exists in ECR: `aws ecr describe-images --repository-name ai-video-backend --region ap-southeast-2`
@@ -462,12 +491,45 @@ aws ecs describe-task-definition \
 
 ### Step 3: Store Gemini API Key in AWS Secrets Manager
 
+**Important:** The API key must be stored as a plain string value, not JSON.
+
+**Option A - Create new secret:**
 ```bash
 aws secretsmanager create-secret \
-  --name gemini-api-key \
-  --secret-string "your-gemini-api-key-here" \
+  --name ai-video-gemini-key \
+  --secret-string "your-actual-gemini-api-key-here" \
   --region ap-southeast-2
 ```
+
+**Option B - Update existing secret:**
+```bash
+aws secretsmanager update-secret \
+  --secret-id ai-video-gemini-key \
+  --secret-string "your-actual-gemini-api-key-here" \
+  --region ap-southeast-2
+```
+
+**Verify the secret:**
+```bash
+# Get the secret ARN (needed for task definition)
+aws secretsmanager describe-secret \
+  --secret-id ai-video-gemini-key \
+  --region ap-southeast-2 \
+  --query 'ARN' \
+  --output text
+
+# Verify the secret value (first 10 chars only)
+aws secretsmanager get-secret-value \
+  --secret-id ai-video-gemini-key \
+  --region ap-southeast-2 \
+  --query 'SecretString' \
+  --output text | head -c 10
+```
+
+**Common Issues:**
+- ❌ **Don't store as JSON:** The secret should be a plain string, not `{"key": "value"}`
+- ✅ **Correct format:** Just the API key string itself: `AIzaSy...`
+- ✅ **Get your API key from:** https://aistudio.google.com/app/apikey
 
 ### Step 4: Create ECS Service
 

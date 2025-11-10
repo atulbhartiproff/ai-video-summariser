@@ -28,7 +28,7 @@
         "secrets": [
           {
             "name": "GEMINI_API_KEY",
-            "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:gemini-api-key-iNRMsf"
+            "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:899673281251:secret:ai-video-gemini-key-XXXXXX"
           }
         ],
         "logConfiguration": {
