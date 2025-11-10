@@ -41,6 +41,10 @@ print(f"Gemini API Key loaded: {masked} (length: {key_len})")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+# Model selection
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+print(f"Using Gemini model: {GEMINI_MODEL}")
+
 # Maximum file size (500MB default)
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "500"))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
@@ -136,8 +140,8 @@ async def upload_video(file: UploadFile = File(...)):
         
         # Use Gemini to process audio and generate summary
         try:
-            # Initialize Gemini model (using gemini-1.5-flash for faster processing)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            # Initialize Gemini model (configurable via GEMINI_MODEL)
+            model = genai.GenerativeModel(GEMINI_MODEL)
             
             # Create prompt for summarization
             prompt = """Please analyze this video/audio content and provide a comprehensive summary with the following structure:
